@@ -1,0 +1,84 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "ppresto-aws-wiz-c2c-sbom",
+  "documentNamespace": "https://github.com/ppresto/aws-wiz-c2c/sbom/2026-03-23",
+  "creationInfo": {
+    "created": "2026-03-23T18:00:00Z",
+    "creators": [
+      "Tool: custom-sbom-generator-1.0"
+    ],
+    "licenseListVersion": "3.19"
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-log4j-core",
+      "name": "org.apache.logging.log4j:log4j-core",
+      "versionInfo": "2.14.1",
+      "supplier": "Organization: Apache Software Foundation",
+      "downloadLocation": "https://repo1.maven.org/maven2/org/apache/logging/log4j/log4j-core/2.14.1/",
+      "filesAnalyzed": false,
+      "primaryPackagePurpose": "LIBRARY",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:maven/org.apache.logging.log4j/log4j-core@2.14.1"
+        }
+      ],
+      "comment": "Vulnerable Java logging library. Source file: pom.xml"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-golang-x-net",
+      "name": "golang.org/x/net",
+      "versionInfo": "0.7.0",
+      "supplier": "Organization: The Go Authors",
+      "downloadLocation": "https://pkg.go.dev/golang.org/x/net@v0.7.0",
+      "filesAnalyzed": false,
+      "primaryPackagePurpose": "LIBRARY",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/golang.org/x/net@0.7.0"
+        }
+      ],
+      "comment": "Vulnerable Go HTTP/2 library. Source file: go.mod"
+    },
+    {
+      "SPDXID": "SPDXRef-Package-xz-utils",
+      "name": "xz-utils",
+      "versionInfo": "5.6.0",
+      "supplier": "Organization: Tukaani Project",
+      "downloadLocation": "https://github.com/tukaani-project/xz/releases/tag/v5.6.0",
+      "filesAnalyzed": false,
+      "primaryPackagePurpose": "LIBRARY",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:deb/debian/xz-utils@5.6.0-0.2"
+        }
+      ],
+      "comment": "Backdoored compression utility. Source file: Dockerfile"
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-log4j-core"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-golang-x-net"
+    },
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-xz-utils"
+    }
+  ]
+}
