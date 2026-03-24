@@ -1,226 +1,202 @@
-# Import External SBOM → Wiz Vulnerability Findings
+# Import an SBOM into Wiz as vulnerability findings
 
-Upload third-party SBOM data into Wiz as real, tracked vulnerability findings on a code repository branch. Fills gaps where Wiz's native scanner can't see all dependencies (multi-language monorepos, custom build systems, vendored code).
+**In plain terms:** You provide a standard **SBOM file** (a list of software components). This tool looks up known vulnerabilities for those components, then **sends them into Wiz** so they appear like normal vulnerability findings on a **specific Git branch**.
 
-## What It Does
+**Who this is for:** Security or platform admins who can run a few terminal commands and edit a small config file. You do **not** need to write code.
 
-This pipeline takes an SPDX 2.3 SBOM, enriches it with vulnerability data from the free OSV.dev API, transforms the results into Wiz's SCA enrichment format, and uploads them via the Wiz WIN API. The findings show up in Wiz as real vulnerability entries — visible in UVM dashboards, triggering Issues per your rules, and tracked over time.
+---
 
-```
-SPDX 2.3 SBOM  →  OSV.dev Vuln Lookup  →  Wiz SCA JSON  →  Wiz WIN API  →  Security Graph
-```
+## Quick start (first time)
 
-### Proven Results
+Do these **in order** from your computer’s terminal.
 
-Tested on `ppresto/aws-wiz-c2c` branch `main`:
-- **Before:** 96 vulnerability findings (Wiz native scan)
-- **After upload:** 99 findings (3 new CVEs from external SBOM)
-- All 3 appeared with `detection=LIBRARY`, `source=Custom Integration`
-- Propagation time: ~10 minutes after successful upload
+| Step | What to do |
+|------|------------|
+| 1 | **Install [uv](https://docs.astral.sh/uv/getting-started/installation/)** (one-time). Check: `uv --version` |
+| 2 | **Install Python 3.10+** if you don’t have it. Check: `python3 --version` |
+| 3 | Open a terminal and **go to this project folder** (the folder that contains `README.md` and `run_pipeline.sh`). Example: `cd ~/path/to/import-sbom-to-vulns-to-wiz` |
+| 4 | Run **`uv sync`** — this creates a local `.venv` folder and installs what the scripts need |
+| 5 | **Create your config:** `cp .env.example .env` then open `.env` in a text editor and fill in at least **`REPO_ASSET_ID`**, **`REPO_NAME`**, **`REPO_BRANCH`**, **`REPO_URL`**, and **`DATASOURCE_ID`**. For Wiz login, either put **`WIZ_CLIENT_ID`** and **`WIZ_CLIENT_SECRET`** in `.env`, or use a script that exports them (e.g. `source ~/wizAPI.sh`) before each run |
+| 6 | **Run the pipeline:** `source ~/wizAPI.sh` (if you use that for credentials), then **`./run_pipeline.sh`** |
 
-## Prerequisites
+**First time only:** if the script is “not executable”, run: `chmod +x run_pipeline.sh`
 
-### 1. Python 3.10+
+**After a successful upload:** wait **about 10–30 minutes**, then in Wiz open **Vulnerability findings** for your repo branch and filter by **Data source = Custom Integration** (wording may vary slightly in the UI).
 
-```bash
-python3 --version
-```
+---
 
-### 2. Wiz Service Account
+## Where the new findings show up in Wiz
 
-Create or use a service account in your Wiz tenant with these scopes:
+- They appear as **vulnerability findings** on the **repository branch** you set in `.env` (`REPO_ASSET_ID` / `REPO_NAME` / `REPO_BRANCH`).
+- They are labeled with **Has External Source = True** like **Custom Integration** (not the same as Wiz’s built-in code scanner).
+- **Wiz’s own scanner can still report other findings** on the same branch. Those are separate and are **not** removed when you “delete” SBOM findings (see below).
 
-| Scope | Purpose |
-|---|---|
-| `create:external_data_ingestion` | Request upload slot and push findings |
-| `read:system_activities` | Poll upload processing status |
-| `read:vulnerabilities` | Verify findings appeared on the branch |
+---
 
-**How to add scopes:**
-1. Go to Wiz → Settings → Service Accounts
-2. Select your service account (or create a new one)
-3. Under **API Scopes**, add the three scopes above
-4. Save and note the Client ID and Client Secret
+## Words you might see
 
-### 3. Target Repository Branch Asset ID
+| Term | Meaning |
+|------|---------|
+| **SBOM** | Software Bill of Materials — a file listing components (often SPDX JSON). |
+| **uv** | A small tool that installs the Python libraries this project uses (`uv sync`). |
+| **Service account** | A Wiz API user (Client ID + Secret) used by the scripts instead of your login. |
+| **Branch asset ID** | A unique ID in Wiz for one **Git branch** of one repo. This is **`REPO_ASSET_ID`** in `.env`. It is **not** always the same as the “repository” ID in some saved URLs. |
+| **DATASOURCE_ID** | A name **you choose** and **reuse** for this repo+branch so new uploads **replace** the previous SBOM import instead of stacking duplicates. |
 
-You need the Wiz Asset ID for the specific repository branch you're targeting.
+---
 
-**How to find it:**
-1. Go to Wiz → Inventory → Code → Repositories
-2. Click your repository
-3. The asset ID is in the URL, or you can query via API:
-   ```bash
-   # Example: search for your repo
-   curl -s -X POST "$WIZ_API/graphql" \
-     -H "Authorization: Bearer $TOKEN" \
-     -d '{"query":"{ repositoryBranches(filterBy:{search:\"your-repo\"}, first:5) { nodes { id name } } }"}'
-   ```
+## Prerequisites (checklist)
 
-### 4. Wiz Integration ID
+- [ ] **Python 3.10 or newer**
+- [ ] **uv** installed ([installation](https://docs.astral.sh/uv/getting-started/installation/))
+- [ ] A **Wiz service account** with these **API scopes**:  
+  `create:external_data_ingestion`, `read:system_activities`, `read:vulnerabilities`  
+  (Wiz → **Settings** → **Service Accounts** → your account → **API Scopes**)
+- [ ] The **Wiz asset ID for the target Git branch** (see `.env.example` comments)
 
-This pipeline uses the built-in enrichment integration ID: `55c176cc-d155-43a2-98ed-aa56873a1ca1`. It works with any service account that has the `create:external_data_ingestion` scope. No additional connector setup required.
+**Integration ID:** The scripts use the standard enrichment integration ID **`55c176cc-d155-43a2-98ed-aa56873a1ca1`**. Leave it as in `.env.example` unless Wiz documentation tells you otherwise.
 
-## Setup
+---
 
-```bash
-# Navigate to this directory
-cd ~/Projects/wiz-Py/import-sbom-to-vulns-to-wiz
+## Configure `.env`
 
-# Create a virtual environment and install dependencies
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+1. Copy the template: **`cp .env.example .env`**
+2. Edit **`.env`** (never commit real secrets; `.env` is git-ignored).
 
-# Configure environment
-# Option A: Use the demo config (pre-filled for ppresto/aws-wiz-c2c)
-cp .env.demo .env
+**Minimum you must set:**
 
-# Option B: Start from blank template for your own repo
-cp .env.example .env
-# Edit .env with your values
-```
+- **`REPO_ASSET_ID`** — branch asset ID from Wiz Inventory (see comments in `.env.example`)
+- **`REPO_NAME`**, **`REPO_BRANCH`**, **`REPO_URL`**, **`VCS_TYPE`**
+- **`DATASOURCE_ID`** — pick a stable string per repo+branch (e.g. `sbom-import-myorg-myrepo-main`)
 
-### Environment Variables
+**Wiz login (pick one):**
 
-| Variable | Description | Example |
-|---|---|---|
-| `WIZ_CLIENT_ID` | Service account client ID | `abc123...` |
-| `WIZ_CLIENT_SECRET` | Service account secret | `xyz789...` |
-| `WIZ_TOKEN_URL` | OAuth token endpoint | `https://auth.app.wiz.io/oauth/token` |
-| `WIZ_INTEGRATION_ID` | Enrichment integration ID | `55c176cc-d155-43a2-98ed-aa56873a1ca1` |
-| `REPO_ASSET_ID` | Wiz asset ID for the repo branch | `b2fbac40-63b8-...` |
-| `REPO_NAME` | GitHub owner/repo | `ppresto/aws-wiz-c2c` |
-| `REPO_BRANCH` | Branch name | `main` |
-| `REPO_URL` | Full GitHub URL | `https://github.com/ppresto/aws-wiz-c2c` |
-| `VCS_TYPE` | Version control system | `GitHub` |
-| `DATASOURCE_ID` | Stable ID for finding replacement | `sbom-import-ppresto-aws-wiz-c2c-main` |
+- Put **`WIZ_CLIENT_ID`** and **`WIZ_CLIENT_SECRET`** in `.env`, **or**
+- Run **`source ~/wizAPI.sh`** (or similar) in the same terminal **before** each script so those variables exist in the environment.
 
-**Tip:** If you already have `~/wizAPI.sh` that exports `WIZ_CLIENT_ID` and `WIZ_CLIENT_SECRET`, source it first and the scripts will pick up those values automatically.
+**Optional:** You can keep a second local file named **`.env.demo`** (git-ignored) with non-secret repo settings and merge ideas from it into `.env`. New clones only get **`.env.example`** — always copy that to **`.env`** first.
 
-## Usage
+---
 
-### Run Full Pipeline
+## Run the full pipeline (upload SBOM → Wiz)
+
+From **this project folder**:
 
 ```bash
-# Activate venv + source your Wiz creds
-source .venv/bin/activate
+uv sync                    # after clone or when dependencies change
+source ~/wizAPI.sh         # if you use this for WIZ_CLIENT_ID / SECRET
+./run_pipeline.sh          # uses the example SBOM under examples/
+```
+
+**Use your own SBOM file:**
+
+```bash
+./run_pipeline.sh /path/to/your-file.spdx.json
+```
+
+The script runs stages **1 → 2 → 3** (enrich → convert → upload). It does **not** run verify or delete.
+
+---
+
+## Run one step at a time (optional)
+
+**Easiest:** use **`uv run python`** so you don’t have to “activate” the virtual environment:
+
+```bash
+cd /path/to/import-sbom-to-vulns-to-wiz
+uv sync
 source ~/wizAPI.sh
 
-# Run all stages with the included example SBOM
-./run_pipeline.sh
-
-# Or point to your own SBOM
-./run_pipeline.sh /path/to/your-sbom.spdx.json
+uv run python 01_enrich_sbom.py --sbom examples/sbom-spdx-2.3-example.json
+uv run python 02_transform_to_wiz.py
+uv run python 03_upload_to_wiz.py
+uv run python 04_verify_findings.py
+uv run python 05_delete_findings.py
 ```
 
-### Run Individual Stages
+**Alternative:** after `uv sync`, run **`source .venv/bin/activate`**, then use **`python`** instead of **`uv run python`**.
 
-Each stage is a standalone script. Run them one at a time for debugging:
+| Script | What it does |
+|--------|----------------|
+| `01_enrich_sbom.py` | Reads SPDX SBOM, asks OSV.dev for CVEs, writes `output/enriched-sbom.json` |
+| `02_transform_to_wiz.py` | Builds `output/wiz-enrichment.json` for Wiz |
+| `03_upload_to_wiz.py` | Sends the JSON to Wiz; wait for **SUCCESS** in the output |
+| `04_verify_findings.py` | Lists findings on the branch (helps confirm upload after ~10–30 min) |
+| `05_delete_findings.py` | **Removes only** findings from **this** SBOM import (same `DATASOURCE_ID`), not all Wiz scanner findings. **Important:** after **SUCCESS**, removals often take **much longer** than new uploads to show in the **Wiz API and UI** — **30+ minutes is common**, and **an hour or more** happens; keep re-checking **Custom Integration** or **`04_verify_findings.py`**. |
 
-```bash
-# Stage 1: Parse SBOM + lookup vulns via OSV.dev
-python3 01_enrich_sbom.py --sbom examples/sbom-spdx-2.3-example.json
+---
 
-# Stage 2: Transform into Wiz SCA enrichment JSON
-python3 02_transform_to_wiz.py
+## Remove the SBOM-import findings (Stage 5: delete / demo reset)
 
-# Stage 3: Upload to Wiz API
-python3 03_upload_to_wiz.py
+1. `uv sync` and `source ~/wizAPI.sh` (same as upload)
+2. **`uv run python 05_delete_findings.py`**
+3. When the script shows **Status: SUCCESS**, ingestion is accepted — but **cleared findings can take a long time** to disappear from the **vulnerability API and UI**, often **longer than after an upload**. **30+ minutes is common**; **an hour or more** is possible. Keep re-running **`04_verify_findings.py`** or refreshing the UI with **Custom Integration** filtered.
 
-# Stage 4: Verify findings appeared (wait ~10 min after upload)
-python3 04_verify_findings.py
+**Note:** You may see a short **“Resource not found”** message while the script waits for Wiz to show the job status — that is common and not necessarily a failure if the final status is **SUCCESS**.
 
-# Stage 5: Delete findings (demo reset)
-python3 05_delete_findings.py
-```
+---
 
-### Demo Flow
+## Saved Wiz URLs vs your `.env`
 
-To run this as a repeatable demo:
+Saved **Vulnerability findings** links sometimes filter by a **repository** ID. Your config uses **`REPO_ASSET_ID`**, which is usually the **branch** ID. Those IDs are **often different**.
 
-```bash
-# 1. Show the branch has N vulns (before)
-python3 04_verify_findings.py
+**Tip:** In Wiz, filter findings by **Custom Integration** (or equivalent) and the correct **branch** so you’re looking at the same data the scripts use.
 
-# 2. Run the full pipeline
-./run_pipeline.sh
-
-# 3. Wait ~10 minutes, then verify new findings
-python3 04_verify_findings.py
-
-# 4. Clean up (reset for next demo)
-python3 05_delete_findings.py
-
-# 5. Wait ~10 minutes, verify findings are gone
-python3 04_verify_findings.py
-```
-
-## File Structure
-
-```
-import-sbom-to-vulns-to-wiz/
-├── README.md                           ← This file
-├── requirements.txt                    ← Python dependencies
-├── .env.example                        ← Template for your config
-├── .env.demo                           ← Pre-filled demo values (no secrets)
-├── .gitignore
-├── run_pipeline.sh                     ← Run all stages end-to-end
-├── 01_enrich_sbom.py                   ← Stage 1: SBOM → OSV lookup
-├── 02_transform_to_wiz.py             ← Stage 2: Enriched → Wiz JSON
-├── 03_upload_to_wiz.py                 ← Stage 3: Upload to Wiz API
-├── 04_verify_findings.py               ← Stage 4: Confirm findings on branch
-├── 05_delete_findings.py               ← Stage 5: Remove findings (demo reset)
-├── lib/
-│   └── wiz_client.py                   ← Shared auth + API helper
-├── examples/
-│   └── sbom-spdx-2.3-example.json     ← Sample SBOM (3 known-vuln packages)
-└── output/                             ← Generated files (git-ignored)
-    ├── enriched-sbom.json              ← Stage 1 output
-    └── wiz-enrichment.json             ← Stage 2 output
-```
-
-## How It Works (Technical Detail)
-
-### Stage 1: Enrich SBOM
-
-- Parses SPDX 2.3 JSON, extracts packages via Package URL (purl)
-- Maps purl ecosystem to OSV ecosystem (Maven, Go, Debian, npm, etc.)
-- Queries the free [OSV.dev API](https://osv.dev/) for each package+version
-- Outputs a flat list of findings with CVE, severity, fixed version, and package metadata
-
-### Stage 2: Transform to Wiz Format
-
-- Reads the enriched output from Stage 1
-- Wraps each finding in Wiz's SCA Application Vulnerability Findings schema
-- Sets the `integrationId`, `dataSource.id`, and `repositoryBranch` asset mapping
-- The `dataSource.id` is critical: keeping it consistent across runs means Wiz **replaces** old findings instead of duplicating them
-
-### Stage 3: Upload to Wiz
-
-- Authenticates via OAuth (client credentials flow)
-- Calls `requestSecurityScanUpload` to get a pre-signed S3 URL
-- PUTs the enrichment JSON to S3
-- Polls `systemActivity` until status is `SUCCESS` or `FAILURE`
-
-### Stage 5: Delete (Demo Reset)
-
-- Uploads an enrichment file with the **same** `dataSource.id` but an **empty** `vulnerabilityFindings` array
-- Wiz replaces the previous findings with nothing, removing them from the branch
-
-## Limitations
-
-- **Not a replacement for Wiz's native scanner.** Enrichment findings coexist alongside native scan results. If both detect the same CVE, you'll see duplicates (different `dataSourceName`).
-- **SBOM quality matters.** If your SBOM has wrong versions or missing packages, the vuln lookup will miss real issues.
-- **Propagation delay.** Findings take ~10 minutes to appear after upload. The `systemActivity` status confirms ingestion succeeded even before findings are visible.
-- **OSV coverage varies.** OSV has excellent coverage for Maven, npm, PyPI, Go, and Rust. Coverage for OS packages (deb, rpm) is more limited.
+---
 
 ## Troubleshooting
 
-| Symptom | Cause | Fix |
-|---|---|---|
-| `access denied` on upload | Missing SA scope | Add `create:external_data_ingestion` to your service account |
-| `systemActivity` returns `FAILURE` | Wrong `integrationId` or bad JSON schema | Use `55c176cc-d155-43a2-98ed-aa56873a1ca1` and validate JSON against the SCA schema |
-| Findings don't appear after 30 min | Asset ID mismatch | Verify `REPO_ASSET_ID` matches the exact branch in Wiz Inventory |
-| OSV returns 0 vulns for a package | Package not in OSV database | Try a different ecosystem mapping, or use grype/trivy as an alternative scanner |
-| `WIZ_CLIENT_ID is not set` | .env not configured | Copy `.env.example` → `.env` and fill in values, or `source ~/wizAPI.sh` first |
+| What you see | What it usually means | What to try |
+|--------------|------------------------|-------------|
+| `WIZ_CLIENT_ID is not set` | No credentials in environment | Add them to `.env` or run `source ~/wizAPI.sh` before the script |
+| `ModuleNotFoundError` for `dotenv` or `requests` | Dependencies missing | From **this folder**, run **`uv sync`** |
+| `access denied` on upload | Service account missing scope | Add **`create:external_data_ingestion`** |
+| Upload shows **FAILURE** | Bad integration ID or bad JSON | Keep **`WIZ_INTEGRATION_ID`** as in `.env.example`; check Wiz docs / support |
+| Findings never show (30+ min) | Wrong branch asset | Confirm **`REPO_ASSET_ID`** is the **branch** in Inventory, not another resource |
+| Delete **SUCCESS** but vulns still visible | Normal delay (often **longer than upload**, sometimes **1+ hours**) or wrong filter | Filter **Custom Integration**; wait **30+ minutes** or more; confirm **`REPO_ASSET_ID`**; re-run **`04_verify_findings.py`** |
+| Many vulns left after delete | Not from this tool | Wiz’s own scanner findings stay; only **Custom Integration** rows from this **`DATASOURCE_ID`** are cleared |
+
+---
+
+## Limitations
+
+- This **adds** findings; it does **not** turn off Wiz’s normal scanning.
+- The same CVE can appear **twice** if both Wiz and this import report it (different sources).
+- OSV.dev coverage depends on language/ecosystem; some packages may return no CVEs.
+- There is **delay** between **SUCCESS** in the script and what you see in the UI — especially after a **delete**, which can lag **much longer** than after an upload (sometimes **an hour or more**).
+
+---
+
+## How it works (technical summary)
+
+1. **Enrich:** SPDX 2.3 → package list → [OSV.dev](https://osv.dev/) lookup → `output/enriched-sbom.json`
+2. **Transform:** Builds Wiz SCA enrichment JSON with `integrationId`, stable `dataSources[].id`, and branch mapping → `output/wiz-enrichment.json`
+3. **Upload:** OAuth → presigned upload → Wiz processes the file → **`systemActivity`** reports **SUCCESS** or **FAILURE**
+4. **Delete:** Same envelope with an **empty** list of findings for the same **`DATASOURCE_ID`** so Wiz **replaces** the previous import. **`systemActivity` SUCCESS** does not mean the UI/API reflects removals immediately — **propagation for deletes is often slower than for uploads** (think **30+ minutes**, sometimes **much longer**).
+
+---
+
+## Files in this folder
+
+```
+import-sbom-to-vulns-to-wiz/
+├── README.md                 ← This guide
+├── pyproject.toml            ← Dependency list for uv
+├── uv.lock                   ← Locked versions (commit with the repo)
+├── .env.example              ← Copy to .env and edit
+├── .gitignore
+├── run_pipeline.sh           ← Stages 1–3 in one go (uses uv)
+├── 01_enrich_sbom.py … 05_delete_findings.py
+├── lib/wiz_client.py         ← Shared Wiz API helper
+├── examples/
+│   └── sbom-spdx-2.3-example.json
+└── output/                   ← Created when you run scripts (git-ignored)
+    ├── enriched-sbom.json
+    └── wiz-enrichment.json
+```
+
+---
+
+## Example results (reference)
+
+On a sample repo, a run may add a number of **Custom Integration** findings (library/detection details depend on the SBOM). Counts vary by SBOM and OSV data. Always confirm in the Wiz UI with the **Custom Integration** filter after propagation.
